@@ -32,7 +32,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/nyuenc",
-            "args": ["file.txt"],
+            "args": ["file.txt", "file.txt"],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",
             "environment": [],
