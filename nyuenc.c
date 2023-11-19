@@ -10,9 +10,6 @@
 #define MAX_SIZE (1024*1024*1024)
 #define CHUNK_SIZE 4
 
-unsigned char* enc(unsigned int* data_size, unsigned int raw_size, char* text);
-void merge(unsigned int data_size, unsigned int* i_c, unsigned char str[], unsigned char merged[]);
-void errorHandler(char* message);
 typedef struct task{
    char task[CHUNK_SIZE];
    unsigned int order;
@@ -27,6 +24,9 @@ typedef struct{
     Task* tail;
 }TaskQueue;
 
+void errorHandler(char* message);
+void enc(Task* task);
+void merge(Task* task, unsigned int* i_m, unsigned char* merged);
 void taskQueueInnit(TaskQueue* taskQueue);
 void enqueue(TaskQueue* taskQueue, Task* task);
 Task* dequeue(TaskQueue* taskQueue);
@@ -59,40 +59,44 @@ int main(int argc, char *argv[]){
     assignTask(fds, raw_size, taskQueue);
     while(taskQueue->tail != NULL){
         Task* task = dequeue(taskQueue);
-        task -> compressed = enc(&(task->compressed_size), task->raw_size, task->task);
-        merge(task->compressed_size, &i_m, task->compressed, merged);
+        enc(task);
+        merge(task, &i_m, merged);
+        free(task -> compressed);
+        free(task);
     }
     fwrite(merged, 1, i_m, stdout);
     fflush(stdout);
+    free(taskQueue);
+    free(merged);
 }
 
-unsigned char* enc(unsigned int* data_size, unsigned int raw_size, char* text){
-    unsigned char* compressed = malloc(raw_size*2);
+void enc(Task* task){
+    unsigned char* compressed = malloc(task->raw_size*2);
     unsigned int i_c = 0;
-    for(unsigned int i = 0; i < raw_size; i++){
+    for(unsigned int i = 0; i < task->raw_size; i++){
         unsigned int count = 0;
         do{
             count++;
             i++;
-        }while(text[i] == text[i-1] && i < raw_size);
-        compressed[i_c ++] = text[--i];
+        }while(task -> task[i] == task -> task[i-1] && i < task->raw_size);
+        compressed[i_c ++] = task -> task[--i];
         compressed[i_c ++] = count;
-        *data_size += 2;
+        task->compressed_size += 2;
     }
-    return compressed;
+    task -> compressed =  compressed;
 }
 
-void merge(unsigned int data_size, unsigned int* i_m, unsigned char str[], unsigned char merged[]){
-    if(*i_m == 0 || (*i_m >= 2 && merged[*i_m - 2] != str[0]) ){
-        for(unsigned int i = 0; i < data_size; i++){
-            merged[(*i_m) ++] = str[i];
+void merge(Task* task, unsigned int* i_m, unsigned char* merged){
+    if(*i_m == 0 || (*i_m >= 2 && merged[*i_m - 2] != task->compressed[0]) ){
+        for(unsigned int i = 0; i < task->compressed_size; i++){
+            merged[(*i_m) ++] = task->compressed[i];
         }
     }else{
         (*i_m) --;
-        unsigned int count = (unsigned int) merged[*i_m] + (unsigned int) str[1];
+        unsigned int count = (unsigned int) merged[*i_m] + (unsigned int) task->compressed[1];
         merged[(*i_m) ++] = count;
-        for(unsigned int i = 2; i < data_size; i++)
-            merged[(*i_m) ++] = str[i];
+        for(unsigned int i = 2; i < task->compressed_size; i++)
+            merged[(*i_m) ++] = task->compressed[i];
     }
 }
 
