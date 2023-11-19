@@ -40,7 +40,6 @@ int main(int argc, char *argv[]){
     memset(sizes, 0, sizeof(sizes));
     unsigned char* merged = (unsigned char*) malloc(MAX_SIZE);
     unsigned int i_m = 0;
-
     for(int i = 1; i < argc; i++){
         int fd = open(argv[i], O_RDONLY);
         if (fd == -1)
@@ -55,19 +54,6 @@ int main(int argc, char *argv[]){
         raw_size[i-1] = (unsigned int) sb.st_size;
         fds[i] = NULL;
     }
-
-    // for(unsigned int i = 0; fds[i] != NULL; i++){
-    //     unsigned char* compressed = enc(&sizes[i], raw_size[i], fds[i]);
-    //     merge(sizes[i], &i_m, compressed, merged);
-    //     free(compressed);
-    // }
-    // fwrite(merged, 1, i_m, stdout);
-    // fflush(stdout);
-    // free(merged);
-    // for (unsigned int i = 0; fds[i] != NULL; i++){
-    //     munmap(fds[i], raw_size[i]);
-    // }
-
     TaskQueue* taskQueue = (TaskQueue*)malloc(sizeof(TaskQueue));
     taskQueueInnit(taskQueue);
     assignTask(fds, raw_size, taskQueue);
@@ -183,5 +169,3 @@ unsigned int assignTask(char* fds[], unsigned int raw_size[], TaskQueue* taskQue
     }
     return order;
 }
-
-
