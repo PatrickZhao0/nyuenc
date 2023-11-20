@@ -54,3 +54,5 @@ dkms.conf
 .vscode/
 *.txt
 *.enc
+
+.DS_Store
