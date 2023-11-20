@@ -9,7 +9,6 @@ nyuenc: nyuenc.o
 
 nyuenc.o: nyuenc.c
 
-
 .PHONY: clean
 clean:
-	rm -f *.o nyuenc
+	rm -f *.o *.zip nyuenc
