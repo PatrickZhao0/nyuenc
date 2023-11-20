@@ -7,7 +7,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <pthread.h>
-#define MAX_SIZE (1024*1024*1024)+1
+#define MAX_SIZE (1024*1024*1024)
 #define CHUNK_SIZE 4096
 
 pthread_mutex_t mutex_queue = PTHREAD_MUTEX_INITIALIZER;
@@ -59,7 +59,7 @@ int main(int argc, char *argv[]){
     
     char* fds[100];
     unsigned int raw_size[100] = {0};
-    unsigned char* merged = (unsigned char*) malloc(MAX_SIZE);
+    
     unsigned int i_m = 0;
     for(int i = 0 + offset; i < argc; i++){
         int fd = open(argv[i], O_RDONLY);
@@ -84,7 +84,10 @@ int main(int argc, char *argv[]){
         }
     }
 
-    submitTasks(fds, raw_size, taskQueue);
+    unsigned int total_size = submitTasks(fds, raw_size, taskQueue);
+    unsigned int worst_case = total_size*2+1;
+    if(worst_case > MAX_SIZE) worst_case = MAX_SIZE;
+    unsigned char* merged = (unsigned char*) malloc(worst_case);
 
     for(unsigned int i = 0; i < multithreads; i++){
         if(pthread_join(threads[i], NULL) != 0){
@@ -223,8 +226,10 @@ unsigned int submitTasks(char* fds[], unsigned int raw_size[], TaskQueue* taskQu
     }
     taskQueue -> all_submited = 1;
     free(fullchunk);
+    pthread_mutex_lock(&mutex_queue);
     pthread_cond_signal(&cond_queue);
-    return order + 1;
+    pthread_mutex_unlock(&mutex_queue);
+    return total_size;
 }
 
 void* excuteTasks(void* queue){
