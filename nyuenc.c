@@ -8,7 +8,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #define MAX_SIZE (1024*1024*1024)
-#define CHUNK_SIZE 40
+#define CHUNK_SIZE 4096
 #define NUM_OF_THREADS 3
 
 pthread_mutex_t mutex_queue = PTHREAD_MUTEX_INITIALIZER;
