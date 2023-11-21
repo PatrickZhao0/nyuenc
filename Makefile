@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-g -pedantic -std=gnu17 -Wall -Werror -Wextra
+CFLAGS=-g -O -pedantic -std=gnu17 -Wall -Werror -Wextra
 LDFLAGS=-pthread
 
 .PHONY: all

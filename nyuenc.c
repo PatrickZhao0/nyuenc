@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <getopt.h>
-#include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -12,10 +11,11 @@
 
 pthread_mutex_t mutex_queue = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond_queue = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t mutex_merge = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cond_merge = PTHREAD_COND_INITIALIZER;
 
 typedef struct task{
    char task[CHUNK_SIZE];
-   unsigned int order;
    unsigned int raw_size;
    unsigned int compressed_size;
    unsigned char* compressed;
@@ -33,7 +33,7 @@ TaskQueue* taskQueueInnit();
 
 void errorHandler(char* message);
 void enc(Task* task);
-void merge(Task* task, unsigned int* i_m, unsigned char* merged);
+void collect(TaskQueue* taskQueue);
 void enqueue(TaskQueue* taskQueue, Task* task);
 Task* dequeue(TaskQueue* taskQueue);
 unsigned int submitTasks(char* fds[], unsigned int raw_size[], TaskQueue* taskQueue);
@@ -56,11 +56,8 @@ int main(int argc, char *argv[]){
             errorHandler("Fail to Parse Options\n");
         }
     }
-    
     char* fds[100];
     unsigned int raw_size[100] = {0};
-    
-    unsigned int i_m = 0;
     for(int i = 0 + offset; i < argc; i++){
         int fd = open(argv[i], O_RDONLY);
         if (fd == -1)
@@ -76,48 +73,30 @@ int main(int argc, char *argv[]){
         fds[i-offset+1] = NULL;
     }
     TaskQueue* taskQueue = taskQueueInnit();
-
     pthread_t threads[multithreads];
     for(unsigned int i = 0; i < multithreads; i++){
         if(pthread_create(&threads[i], NULL, &excuteTasks, taskQueue) != 0){
             errorHandler("Fail to create thread\n");
         }
     }
-
-    unsigned int total_size = submitTasks(fds, raw_size, taskQueue);
-    unsigned int worst_case = total_size*2+1;
-    if(worst_case > MAX_SIZE) worst_case = MAX_SIZE;
-    unsigned char* merged = (unsigned char*) malloc(worst_case);
-
+    submitTasks(fds, raw_size, taskQueue);
+    collect(taskQueue);
     for(unsigned int i = 0; i < multithreads; i++){
-        if(pthread_join(threads[i], NULL) != 0){
-            errorHandler("Fail to join thread\n");
-        }
+         if(pthread_join(threads[i], NULL) != 0){
+             errorHandler("Fail to join thread\n");
+         }
     }
-
-    while(taskQueue -> head != NULL){
-        Task* task = dequeue(taskQueue);
-        merge(task, &i_m, merged);
-        free(task -> compressed);
-        free(task);
-    }
-    fwrite(merged, 1, i_m, stdout);
-    fflush(stdout);
-    pthread_mutex_destroy(&mutex_queue);
-    pthread_cond_destroy(&cond_queue);
-    free(taskQueue);
-    free(merged);
 }
 
 void enc(Task* task){
-    unsigned char* compressed = malloc(task->raw_size*2);
+    unsigned char* compressed = malloc(task->raw_size*2+1);
     unsigned int i_c = 0;
     for(unsigned int i = 0; i < task->raw_size; i++){
         unsigned int count = 0;
         do{
             count++;
             i++;
-        }while(task -> task[i] == task -> task[i-1] && i < task->raw_size);
+        }while(i < task->raw_size && task -> task[i] == task -> task[i-1]);
         compressed[i_c ++] = task -> task[--i];
         compressed[i_c ++] = count;
         task->compressed_size += 2;
@@ -125,18 +104,33 @@ void enc(Task* task){
     task -> compressed = compressed;
 }
 
-void merge(Task* task, unsigned int* i_m, unsigned char* merged){
-    if(*i_m == 0 || (*i_m >= 2 && merged[*i_m - 2] != task->compressed[0]) ){
-        for(unsigned int i = 0; i < task->compressed_size; i++){
-            merged[(*i_m) ++] = task->compressed[i];
+void collect(TaskQueue* taskQueue){
+    char* pending = NULL;
+    pthread_mutex_lock(&mutex_merge);
+    while(taskQueue -> head != NULL){
+        while(taskQueue -> head -> compressed == NULL){
+            pthread_cond_wait(&cond_merge, &mutex_merge);
         }
-    }else{
-        (*i_m) --;
-        unsigned int count = (unsigned int) merged[*i_m] + (unsigned int) task->compressed[1];
-        merged[(*i_m) ++] = count;
-        for(unsigned int i = 2; i < task->compressed_size; i++)
-            merged[(*i_m) ++] = task->compressed[i];
+        Task* task = dequeue(taskQueue);
+        if(pending == NULL){
+            pending = (char*) malloc(2);
+        }else if(pending[0] == task -> compressed[0]){
+            task -> compressed[1] += pending[1];
+        }else{
+            fwrite(pending, 1, 2, stdout);
+        }
+        fwrite(task->compressed, 1, task -> compressed_size - 2, stdout);
+        fflush(stdout);
+        pending[0] = task -> compressed [task -> compressed_size - 2];
+        pending[1] = task -> compressed [task -> compressed_size - 1];
+        free(task -> compressed);
+        free(task);
     }
+    pthread_mutex_unlock(&mutex_merge);
+    fwrite(pending, 1, 2, stdout);
+    fflush(stdout);
+    if(pending != NULL) free(pending);
+    free(taskQueue);
 }
 
 void errorHandler(char* message){
@@ -156,7 +150,6 @@ TaskQueue* taskQueueInnit(){
 Task* taskInnit(){
     Task* task = (Task*) malloc(sizeof(Task));
     memset(task -> task, 0, CHUNK_SIZE);
-    task -> order = 0;
     task -> raw_size = 0; 
     task -> compressed_size = 0;
     task -> compressed = NULL;
@@ -189,7 +182,6 @@ Task* dequeue(TaskQueue* taskQueue){
         if(taskQueue -> head == NULL){
             taskQueue -> tail = NULL;
         }
-        temp -> next = NULL;
         return temp;
     }
     return NULL;
@@ -207,7 +199,6 @@ unsigned int submitTasks(char* fds[], unsigned int raw_size[], TaskQueue* taskQu
             i_fc ++;
         }
     }
-    unsigned int order = 0;
     for(unsigned int i = 0; i < total_size; ){
         Task* task = taskInnit();
         unsigned int count = 0;
@@ -216,8 +207,6 @@ unsigned int submitTasks(char* fds[], unsigned int raw_size[], TaskQueue* taskQu
             count ++;
             i++;
         }
-        task -> order = order;
-        order ++;
         task -> raw_size = count;
         pthread_mutex_lock(&mutex_queue);
         enqueue(taskQueue, task);
@@ -248,6 +237,11 @@ void* excuteTasks(void* queue){
         task = *(taskQueue -> trace);
         taskQueue -> trace = &((*(taskQueue -> trace)) -> next);
         pthread_mutex_unlock(&mutex_queue);
+        pthread_mutex_lock(&mutex_merge);
         enc(task);
+        pthread_cond_signal(&cond_merge);
+        pthread_mutex_unlock(&mutex_merge);
     }
 }
+
+//Citation: Thread pool implementation is inspired by https://code-vault.net/lesson/j62v2novkv:1609958966824
