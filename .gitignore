@@ -56,3 +56,5 @@ dkms.conf
 *.enc
 
 .DS_Store
+
+*.in
