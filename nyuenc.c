@@ -8,8 +8,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #define MAX_SIZE (1024*1024*1024)
-#define CHUNK_SIZE 40
-#define NUM_OF_THREADS 3
+#define CHUNK_SIZE 4096
 
 pthread_mutex_t mutex_queue = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond_queue = PTHREAD_COND_INITIALIZER;
@@ -41,13 +40,28 @@ unsigned int submitTasks(char* fds[], unsigned int raw_size[], TaskQueue* taskQu
 void* excuteTasks(void* taskQueue);
 
 int main(int argc, char *argv[]){
+    int opt;
+    unsigned int multithreads = 1;
+    int offset = 1;
+    while ((opt = getopt(argc, argv, "j:")) != -1) {
+        switch (opt) {
+        case 'j':
+            if(*optarg > 57 || *optarg < 49)
+                errorHandler("Invalid Argument: It should be a int > 0\n");
+            multithreads = atoi(optarg);
+            offset += 2;
+            break;
+        case '?':
+        default:
+            errorHandler("Fail to Parse Options\n");
+        }
+    }
+    
     char* fds[100];
-    unsigned int raw_size[100], sizes[100];
-    memset(raw_size, 0, sizeof(raw_size));
-    memset(sizes, 0, sizeof(sizes));
-    unsigned char* merged = (unsigned char*) malloc(MAX_SIZE);
+    unsigned int raw_size[100] = {0};
+    
     unsigned int i_m = 0;
-    for(int i = 1; i < argc; i++){
+    for(int i = 0 + offset; i < argc; i++){
         int fd = open(argv[i], O_RDONLY);
         if (fd == -1)
             errorHandler("Fail to Open File\n");
@@ -57,22 +71,25 @@ int main(int argc, char *argv[]){
         char* addr = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
         if (addr == MAP_FAILED)
             errorHandler("Fail to Map File\n");
-        fds[i-1] = addr;
-        raw_size[i-1] = (unsigned int) sb.st_size;
-        fds[i] = NULL;
+        fds[i-offset] = addr;
+        raw_size[i-offset] = (unsigned int) sb.st_size;
+        fds[i-offset+1] = NULL;
     }
     TaskQueue* taskQueue = taskQueueInnit();
 
-    pthread_t threads[NUM_OF_THREADS];
-    for(unsigned int i = 0; i < NUM_OF_THREADS; i++){
+    pthread_t threads[multithreads];
+    for(unsigned int i = 0; i < multithreads; i++){
         if(pthread_create(&threads[i], NULL, &excuteTasks, taskQueue) != 0){
             errorHandler("Fail to create thread\n");
         }
     }
 
-    submitTasks(fds, raw_size, taskQueue);
+    unsigned int total_size = submitTasks(fds, raw_size, taskQueue);
+    unsigned int worst_case = total_size*2+1;
+    if(worst_case > MAX_SIZE) worst_case = MAX_SIZE;
+    unsigned char* merged = (unsigned char*) malloc(worst_case);
 
-    for(unsigned int i = 0; i < NUM_OF_THREADS; i++){
+    for(unsigned int i = 0; i < multithreads; i++){
         if(pthread_join(threads[i], NULL) != 0){
             errorHandler("Fail to join thread\n");
         }
@@ -182,11 +199,11 @@ unsigned int submitTasks(char* fds[], unsigned int raw_size[], TaskQueue* taskQu
     unsigned int total_size = 0;
     for(int i = 0; fds[i] != NULL; i++)
         total_size += raw_size[i];
-    char fullChuck[total_size];
+    char* fullchunk = (char*) malloc(total_size);
     int i_fc = 0;
     for(int i = 0; fds[i] != NULL; i++){
         for(unsigned int j = 0; j < raw_size[i]; j++){
-            fullChuck[i_fc] = fds[i][j];
+            fullchunk[i_fc] = fds[i][j];
             i_fc ++;
         }
     }
@@ -195,7 +212,7 @@ unsigned int submitTasks(char* fds[], unsigned int raw_size[], TaskQueue* taskQu
         Task* task = taskInnit();
         unsigned int count = 0;
         while(count < CHUNK_SIZE && i < total_size){
-            task -> task[count] = fullChuck[i];
+            task -> task[count] = fullchunk[i];
             count ++;
             i++;
         }
@@ -208,8 +225,11 @@ unsigned int submitTasks(char* fds[], unsigned int raw_size[], TaskQueue* taskQu
         pthread_mutex_unlock(&mutex_queue);
     }
     taskQueue -> all_submited = 1;
+    free(fullchunk);
+    pthread_mutex_lock(&mutex_queue);
     pthread_cond_signal(&cond_queue);
-    return order + 1;
+    pthread_mutex_unlock(&mutex_queue);
+    return total_size;
 }
 
 void* excuteTasks(void* queue){
