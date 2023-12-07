@@ -21,7 +21,6 @@ typedef struct task{
    unsigned char* compressed;
    struct task* next;
 }Task;
-Task* taskInnit();
 
 typedef struct{
     Task* head;
@@ -29,7 +28,6 @@ typedef struct{
     Task** trace;
     unsigned int all_submited;
 }TaskQueue;
-TaskQueue* taskQueueInnit();
 
 void errorHandler(char* message);
 void enc(Task* task);
@@ -72,7 +70,11 @@ int main(int argc, char *argv[]){
         raw_size[i-offset] = (unsigned int) sb.st_size;
         fds[i-offset+1] = NULL;
     }
-    TaskQueue* taskQueue = taskQueueInnit();
+    TaskQueue* taskQueue = (TaskQueue*)malloc(sizeof(TaskQueue));
+    taskQueue -> head = NULL;
+    taskQueue -> tail = NULL;
+    taskQueue -> all_submited = 0;
+    taskQueue -> trace = &(taskQueue -> head);
     pthread_t threads[multithreads];
     for(unsigned int i = 0; i < multithreads; i++){
         if(pthread_create(&threads[i], NULL, &excuteTasks, taskQueue) != 0){
@@ -138,25 +140,6 @@ void errorHandler(char* message){
     exit(EXIT_FAILURE);
 }
 
-TaskQueue* taskQueueInnit(){
-    TaskQueue* taskQueue = (TaskQueue*)malloc(sizeof(TaskQueue));
-    taskQueue -> head = NULL;
-    taskQueue -> tail = NULL;
-    taskQueue -> all_submited = 0;
-    taskQueue -> trace = &(taskQueue -> head);
-    return taskQueue;
-}
-
-Task* taskInnit(){
-    Task* task = (Task*) malloc(sizeof(Task));
-    memset(task -> task, 0, CHUNK_SIZE);
-    task -> raw_size = 0; 
-    task -> compressed_size = 0;
-    task -> compressed = NULL;
-    task -> next = NULL;
-    return task;
-}
-
 void enqueue(TaskQueue* taskQueue, Task* task){
     if(taskQueue == NULL || task == NULL){
         errorHandler("Unable to Enqueue\n");
@@ -200,7 +183,12 @@ unsigned int submitTasks(char* fds[], unsigned int raw_size[], TaskQueue* taskQu
         }
     }
     for(unsigned int i = 0; i < total_size; ){
-        Task* task = taskInnit();
+        Task* task = (Task*) malloc(sizeof(Task));
+        //memset(task -> task, 0, CHUNK_SIZE);
+        //task -> raw_size = 0; 
+        //task -> compressed_size = 0;
+        task -> compressed = NULL;
+        task -> next = NULL;
         unsigned int count = 0;
         while(count < CHUNK_SIZE && i < total_size){
             task -> task[count] = fullchunk[i];
